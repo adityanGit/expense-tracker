@@ -122,6 +122,22 @@ svg{display:block}
 .item .a.inc{color:var(--green)}
 .item.pending .ico,.item.pending .a{opacity:.5}
 .needs{color:#f59e0b;font-weight:700}
+.ss-bar{height:6px;border-radius:3px;background:rgba(255,255,255,.18);overflow:hidden;margin-top:8px}
+.ss-bar i{display:block;height:100%;border-radius:3px;background:#7ee2a8;transition:width .9s var(--ease)}
+.due{font-weight:600}.due.hot{color:var(--red)}
+.fixed-row{width:100%;text-align:left}
+.chk{width:28px;height:28px;margin:0 8px;border-radius:50%;border:2px solid var(--faint);display:grid;place-items:center;font-size:14px;font-weight:800;flex:none;
+  transition:background .3s,border-color .3s,transform .4s var(--spring)}
+.chk.on{background:var(--green);border-color:var(--green);color:#fff;transform:scale(1.05)}
+.bud{padding:6px 0 10px}.bud+.bud{border-top:1px solid var(--sep);padding-top:12px}
+.bud .t{display:flex;justify-content:space-between;align-items:center;font-size:15px;margin-bottom:7px}
+.bud .t span:first-child{display:flex;align-items:center;gap:8px;font-weight:600}.bud .t svg{width:17px;height:17px}
+.bud .bl{font-size:12px;margin-top:5px}
+.bud .t span:last-child{white-space:nowrap}
+.ed-list{max-height:52vh;overflow-y:auto;margin:0 -4px;padding:0 4px}
+.ed-row{display:flex;align-items:center;gap:8px;padding:6px 0}
+.ed-n{flex:1;font-weight:600;display:flex;align-items:center;gap:8px;font-size:15px}.ed-n svg{width:17px;height:17px}
+.ed-i{width:72px;padding:11px 10px;text-align:center;font-size:16px}.ed-i.wide{width:120px}
 .review-banner{display:flex;align-items:center;gap:12px;width:100%;margin-top:14px;padding:12px 14px;border-radius:20px;text-align:left;
   background:color-mix(in srgb,#f59e0b 14%,var(--tile));transition:transform .35s var(--spring)}
 .review-banner:active{transform:scale(.97)}
@@ -327,6 +343,7 @@ svg{display:block}
       <button class="act-pill" data-open="Expense"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M7 17L17 7M9 7h8v8"/></svg>Expense</button>
     </div>
     <button class="review-banner rise d3" id="reviewBanner" data-review="1"></button>
+    <div id="billsBox" class="rise d3"></div>
     <div class="sec-h rise d3"><h3>Recent Transactions</h3><button data-go="hist">View All</button></div>
     <div id="recentList" class="rise d3"></div>
   </div>
@@ -372,6 +389,9 @@ svg{display:block}
   <div class="panel">
     <div class="sec-h" style="margin-top:6px"><h3>Expenses</h3><button data-go="hist">View All</button></div>
     <div class="exp-total num" id="expTotal">₹0</div>
+    <div class="sec-h"><h3>Budgets</h3><button id="editBudgets">Edit</button></div>
+    <div id="budgets"></div>
+    <div class="sec-h"><h3>Top categories</h3></div>
     <div class="tiles" id="tiles"></div>
     <div class="minis" id="minis"></div>
     <p class="label">Daily spend <span id="dailyMax"></span></p>
@@ -447,7 +467,8 @@ function iconKey(name){const n=String(name||'').toLowerCase();
   if(/transfer/.test(n))return'swap';return'tag';}
 
 const S={tabs:[],tab:'',url:'',cats:[],accs:[],rows:[],summary:[],view:'home',
-  kind:'Expense',category:'',account:'',date:todayISO(),split:false,splitN:2,month:'',filter:'',busy:false,edit:null,loading:false};
+  kind:'Expense',category:'',account:'',date:todayISO(),split:false,splitN:2,month:'',filter:'',busy:false,edit:null,loading:false,
+  settings:{},fixed:[],cards:[]};
 
 const $=id=>document.getElementById(id);
 const esc=s=>String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -509,12 +530,15 @@ function enqueue(fn){QN++;syncUI();const p=Q.then(fn);Q=p.catch(()=>{}).then(()=
 function syncUI(){$('refreshBtn').classList.toggle('spin',QN>0||!!S.loading);}
 const CK='et_cache_v1';
 function saveCache(){try{localStorage.setItem(CK,JSON.stringify({tabs:S.tabs,tab:S.tab,url:S.url,cats:S.cats,accs:S.accs,summary:S.summary,
+  settings:S.settings,fixed:S.fixed,cards:S.cards,
   rows:S.rows.filter(r=>r.row&&!r.pending).map(r=>({row:r.row,date:r.date,desc:r.saved.desc,category:r.category,amount:r.saved.amount,account:r.account,group:r.group||'',remarks:r.remarks||''}))}));}catch(e){}}
 function fromCache(){try{const c=JSON.parse(localStorage.getItem(CK)||'null');if(!c||!c.rows)return false;
   const want=store.get('ql_tab');if(want&&c.tab!==want)return false;
   applyMeta(c);applyData(c);renderAll();$('loading').classList.add('hide');return true;}catch(e){return false;}}
 function applyMeta(b){
   S.tabs=b.tabs||[];S.tab=b.tab;S.url=b.url;
+  if(b.settings)S.settings=b.settings;S.settings=S.settings||{};
+  if(b.fixed)S.fixed=b.fixed;if(b.cards)S.cards=b.cards;S.fixed=S.fixed||[];S.cards=S.cards||[];
   const cats=b.cats||(b.setup&&b.setup.categories),accs=b.accs||(b.setup&&b.setup.accounts);
   S.cats=cats&&cats.length?cats:DEFAULT_CATS;S.accs=accs&&accs.length?accs:DEFAULT_ACCS;
   $('tabSel').innerHTML=S.tabs.map(t=>`<option ${t===S.tab?'selected':''}>${esc(t)}</option>`).join('');
@@ -525,6 +549,11 @@ async function load(tab,force){
   S.loading=true;syncUI();
   try{
     const b=await enqueue(()=>call('getBootstrap',tab||store.get('ql_tab')||S.tab||'',!!force));
+    // a new month's tab exists → switch to it once (you can still pick older months in the tab menu)
+    if(b.latest&&b.latest!==b.tab&&store.get('et_seen_latest')!==b.latest){
+      store.set('et_seen_latest',b.latest);store.set('ql_tab',b.latest);
+      toast('New month – switched to '+b.latest);return await load(b.latest);
+    }
     const pending=S.rows.filter(r=>r.pending&&!r.row);
     applyMeta(b);applyData(b.data);S.rows.push(...pending);
     if(!S.account)S.account=mostUsed('account')||(S.accs[0]&&S.accs[0].name)||'';
@@ -562,13 +591,107 @@ function renderHome(animate){
   if(animate)countUp(el,target,v=>money(v,target<0?'−':''));else el.innerHTML=money(target,target<0?'−':'');
   $('balChip').innerHTML=showLeft?`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M7 17L17 7M9 7h8v8"/></svg>${inr0(spent)} spent in ${MONTHS[mo-1]}`
     :`${exp.length} expenses this month`;
-  $('homeCard').innerHTML=`<div class="row"><span>•••• ${esc(mostUsed('account')||'Ledger')}</span><span>${String(mo).padStart(2,'0')} / ${String(y).slice(2)}</span></div>
-    <div><div class="row" style="opacity:.7">Today</div><div class="big num">${money(todaySpent)}</div></div>
-    <div class="row"><span>Avg ${inr0(spent/Math.max(1,days))}/day · ${exp.length} entries</span><span class="tag">INR</span></div>`;
+  const dim=new Date(y,mo,0).getDate(),daysLeft=isCur?dim-new Date().getDate()+1:0;
+  if(showLeft&&isCur){
+    // Safe to spend today = (money left + what you've already spent today) ÷ days left including today
+    const allowance=Math.max(0,(leftV+todaySpent)/daysLeft),remain=allowance-todaySpent,over=remain<0;
+    const pct=allowance?Math.min(100,todaySpent/allowance*100):100;
+    $('homeCard').innerHTML=`<div class="row"><span>SAFE TO SPEND TODAY</span><span>${daysLeft} day${daysLeft>1?'s':''} left</span></div>
+      <div><div class="big num" style="${over?'color:#ffb4ae':''}">${over?money(-remain,'−')+' <span style="font-size:15px;opacity:.8">over</span>':money(remain)}</div>
+        <div class="ss-bar"><i style="width:${pct}%;${over?'background:#ff6b6b':pct>80?'background:#fbbf24':''}"></i></div></div>
+      <div class="row"><span>${inr0(todaySpent)} spent of ${inr0(allowance)} today</span><span class="tag">INR</span></div>`;
+  }else{
+    $('homeCard').innerHTML=`<div class="row"><span>•••• ${esc(mostUsed('account')||'Ledger')}</span><span>${String(mo).padStart(2,'0')} / ${String(y).slice(2)}</span></div>
+      <div><div class="row" style="opacity:.7">Today</div><div class="big num">${money(todaySpent)}</div></div>
+      <div class="row"><span>Avg ${inr0(spent/Math.max(1,days))}/day · ${exp.length} entries</span><span class="tag">INR</span></div>`;
+  }
+  renderBills();
   const nr=S.rows.filter(needsReview).length;
   $('reviewBanner').style.display=nr?'':'none';
   $('reviewBanner').innerHTML=`<span class="rb-ic">!</span><span class="rb-t"><b>${nr} auto-logged ${nr>1?'entries need':'entry needs'} a category</b><br><span>Tap to review</span></span><span class="rb-go">›</span>`;
   $('recentList').innerHTML=sorted(S.rows).slice(0,6).map(r=>rowHTML(r,false)).join('')||'<div class="empty">No entries yet</div>';
+}
+
+/* ---------- BILLS (cards + fixed checklist) ---------- */
+const fmtShort=iso=>{const[y,m,d]=iso.split('-');return +d+' '+MONTHS[+m-1];};
+function renderBills(){
+  const ym=todayISO().slice(0,7),paid=((S.settings.fixedPaid||{})[ym])||{};
+  const cardRows=(S.cards||[]).map(c=>{
+    const dueSoon=c.billAmount>0&&c.daysToDue>=0;
+    const right=dueSoon?`<div class="a num">${inr(c.billAmount)}</div>`:`<div class="a num" style="color:var(--muted)">${inr0(c.spentThisCycle)}</div>`;
+    const when=dueSoon?(c.daysToDue===0?'<span class="due hot">Due today</span>':c.daysToDue===1?'<span class="due hot">Due tomorrow</span>':
+        `<span class="due ${c.daysToDue<=3?'hot':''}">Due ${fmtShort(c.dueDate)} · in ${c.daysToDue} days</span>`)
+      :`${inr0(c.spentThisCycle)} this cycle · statement ${fmtShort(c.nextStatement)}`;
+    return `<div class="item"><div class="ico">${svg('brief')}</div><div class="mid"><div class="d">${esc(c.account)} ${dueSoon?'bill':''}</div><div class="s">${when}</div></div>${right}</div>`;
+  }).join('');
+  const fixedRows=(S.fixed||[]).map(f=>{const on=!!paid[f.name];
+    return `<button class="item fixed-row" data-fixed="${esc(f.name)}"><span class="chk ${on?'on':''}">${on?'✓':''}</span>
+      <div class="mid"><div class="d" style="${on?'text-decoration:line-through;opacity:.55':''}">${esc(f.name.charAt(0).toUpperCase()+f.name.slice(1))}</div>
+      <div class="s">${on?'Paid this month':'Fixed · tap when paid'}</div></div><div class="a num" style="${on?'opacity:.55':''}">${inr(f.amount)}</div></button>`;}).join('');
+  const nPaid=(S.fixed||[]).filter(f=>paid[f.name]).length;
+  $('billsBox').innerHTML=(cardRows||fixedRows)?`<div class="sec-h"><h3>Bills & fixed</h3><button id="editCards">Card dates</button></div>
+    ${cardRows||`<button class="item" id="addCards"><div class="ico">${svg('brief')}</div><div class="mid"><div class="d">Add card bill dates</div><div class="s">See each card's bill and due date here</div></div><div class="a" style="color:var(--muted)">›</div></button>`}
+    ${fixedRows?`<div class="day-h" style="margin-top:10px"><span>Fixed this month</span><span>${nPaid}/${S.fixed.length} paid</span></div>${fixedRows}`:''}`:'';
+}
+document.addEventListener('click',e=>{
+  const f=e.target.closest('[data-fixed]');
+  if(f){const ym=todayISO().slice(0,7),name=f.dataset.fixed,cur=!!(((S.settings.fixedPaid||{})[ym]||{})[name]);
+    saveSettingsPatch({fixedPaid:{[ym]:{[name]:!cur}}});return;}
+  if(e.target.closest('#editCards,#addCards'))openCardEditor();
+  if(e.target.closest('#editBudgets,#addBudgets'))openBudgetEditor();
+});
+function saveSettingsPatch(patch,reload){
+  // apply locally first so it feels instant
+  const s=S.settings=S.settings||{};
+  if(patch.fixedPaid)Object.keys(patch.fixedPaid).forEach(m=>{s.fixedPaid=s.fixedPaid||{};s.fixedPaid[m]=Object.assign({},s.fixedPaid[m],patch.fixedPaid[m]);});
+  if(patch.budgets){s.budgets=Object.assign({},s.budgets);Object.keys(patch.budgets).forEach(k=>{const v=Math.round(+patch.budgets[k]);if(v>0)s.budgets[k]=v;else delete s.budgets[k];});}
+  if(patch.cards){s.cards=Object.assign({},s.cards);Object.keys(patch.cards).forEach(k=>{const c=patch.cards[k];if(c&&c.stmt&&c.due)s.cards[k]=c;else delete s.cards[k];});}
+  renderHome();renderStats();
+  enqueue(async()=>{S.settings=await call('saveSettings',patch);renderHome();renderStats();})
+    .then(()=>{if(reload)load(S.tab);})
+    .catch(e=>{toast('Not saved: '+(e.message||e),true);load(S.tab);});
+}
+function openCardEditor(){
+  const cards=(S.settings.cards)||{};
+  const accs=S.accs.map(a=>a.name).filter(n=>!/^cash$|^checking$/i.test(n));
+  $('sheetPanel').innerHTML=`<div class="grab"></div><div class="ttl">Card bill dates</div>
+    <div class="meta">Day of the month your statement is generated, and the payment due day. Leave blank if it isn't a credit card.</div>
+    <div class="ed-list">${accs.map(n=>{const c=cards[n]||{};return `<div class="ed-row"><span class="ed-n">${esc(n)}</span>
+      <input class="field ed-i" inputmode="numeric" placeholder="Stmt" data-card="${esc(n)}" data-k="stmt" value="${c.stmt||''}">
+      <input class="field ed-i" inputmode="numeric" placeholder="Due" data-card="${esc(n)}" data-k="due" value="${c.due||''}"></div>`;}).join('')}</div>
+    <div class="acts" style="margin-top:14px"><button class="sb dark" id="saveCards">Save</button></div>`;
+  $('saveCards').onclick=()=>{
+    const patch={};
+    accs.forEach(n=>{const g=k=>+(document.querySelector(`[data-card="${CSS.escape(n)}"][data-k="${k}"]`).value||0);
+      const st=g('stmt'),du=g('due');patch[n]=(st>=1&&st<=31&&du>=1&&du<=31)?{stmt:st,due:du}:null;});
+    closeSheet();toast('Card dates saved');saveSettingsPatch({cards:patch},true);
+  };
+  showSheet();
+}
+function openBudgetEditor(){
+  const b=(S.settings.budgets)||{};
+  const cats=S.cats.filter(c=>typeOf(c.name)==='Expense').map(c=>c.name);
+  $('sheetPanel').innerHTML=`<div class="grab"></div><div class="ttl">Monthly budgets</div>
+    <div class="meta">Set a limit for the categories you want to watch. Leave blank for no limit.</div>
+    <div class="ed-list">${cats.map(n=>`<div class="ed-row"><span class="ed-n">${svg(iconKey(n))}${esc(n)}</span>
+      <input class="field ed-i wide" inputmode="numeric" placeholder="No limit" data-budget="${esc(n)}" value="${b[n]||''}"></div>`).join('')}</div>
+    <div class="acts" style="margin-top:14px"><button class="sb dark" id="saveBudgets">Save</button></div>`;
+  $('saveBudgets').onclick=()=>{
+    const patch={};document.querySelectorAll('[data-budget]').forEach(i=>{patch[i.dataset.budget]=+(i.value.replace(/[^0-9.]/g,''))||0;});
+    closeSheet();toast('Budgets saved');saveSettingsPatch({budgets:patch});
+  };
+  showSheet();
+}
+function renderBudgets(exp){
+  const b=(S.settings&&S.settings.budgets)||{},names=Object.keys(b);
+  if(!names.length){$('budgets').innerHTML=`<button class="tile" id="addBudgets" style="width:100%;text-align:left;display:flex;gap:12px;align-items:center">
+    <span class="ico" style="background:var(--tile2)">${svg('tag')}</span><span style="flex:1"><b>Set monthly budgets</b><br><span style="color:var(--muted);font-size:13px">Get warned before you overspend</span></span><span style="color:var(--muted)">›</span></button>`;return;}
+  const by=group(exp,'category');
+  $('budgets').innerHTML='<div class="tile">'+names.sort((x,y)=>(by[y]||0)/b[y]-(by[x]||0)/b[x]).map(n=>{
+    const s=by[n]||0,p=s/b[n],col=p>=1?'var(--red)':p>=.85?'#f59e0b':'var(--green)';
+    return `<div class="bud"><div class="t"><span>${svg(iconKey(n))}${esc(n)}</span><span class="num">${inr0(s)} <span style="color:var(--muted);font-weight:400">/ ${inr0(b[n])}</span></span></div>
+      <div class="bar"><i data-w="${Math.min(100,p*100)}" style="background:${col}"></i></div>
+      <div class="bl" style="color:${p>=1?'var(--red)':'var(--muted)'}">${p>=1?'Over by '+inr0(s-b[n]):inr0(b[n]-s)+' left · '+Math.round(p*100)+'%'}</div></div>`;}).join('')+'</div>';
 }
 
 /* ---------- ADD / EDIT ---------- */
@@ -703,6 +826,7 @@ function renderStats(){
     :'<div class="empty" style="color:rgba(255,255,255,.7)">No expenses this month</div>';
 
   $('expTotal').innerHTML=money(spent);
+  renderBudgets(exp);
   $('tiles').innerHTML=byCat.slice(0,4).map(([c,v])=>`<div class="tile"><div class="tt"><span>${esc(c)}</span>${svg(iconKey(c))}</div><div class="tv num">${money(v)}</div></div>`).join('');
   const [y,m]=(S.month||todayISO().slice(0,7)).split('-').map(Number),dim=new Date(y,m,0).getDate(),isCur=S.month===todayISO().slice(0,7);
   const days=isCur?new Date().getDate():dim;
@@ -877,8 +1001,10 @@ function openSettings(){
   $('sheetPanel').innerHTML=`<div class="grab"></div><div class="ttl">Settings</div>
     <div class="meta">Connected to “${esc(S.tab||'your sheet')}”<br><span style="font-size:12px;word-break:break-all">${esc(c?c.url.replace(/^https:\/\//,'').slice(0,60)+'…':'')}</span></div>
     <div class="qr" id="setQR" style="display:none"></div>
-    <div class="acts"><button class="sb dark" id="sLink">Show setup QR for another device</button>
+    <div class="acts"><button class="sb" id="sBud">Monthly budgets</button><button class="sb" id="sCards">Card bill dates</button>
+    <button class="sb dark" id="sLink">Show setup QR for another device</button>
     <button class="sb" id="sEdit">Change URL or key</button><button class="sb red" id="sOut">Disconnect this device</button></div>`;
+  $('sBud').onclick=()=>openBudgetEditor();$('sCards').onclick=()=>openCardEditor();
   $('sLink').onclick=()=>{const q=$('setQR');q.style.display='';drawQR(q,setupLink(c));$('sLink').style.display='none';};
   $('sEdit').onclick=()=>{closeSheet();showSetup();};
   $('sOut').onclick=()=>{setCfg(null);try{localStorage.removeItem(CK)}catch(e){}history.replaceState(null,'',location.pathname);location.reload();};
