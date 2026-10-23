@@ -121,6 +121,15 @@ svg{display:block}
 .item .a{font-weight:700;white-space:nowrap;font-size:16px}
 .item .a.inc{color:var(--green)}
 .item.pending .ico,.item.pending .a{opacity:.5}
+.needs{color:#f59e0b;font-weight:700}
+.review-banner{display:flex;align-items:center;gap:12px;width:100%;margin-top:14px;padding:12px 14px;border-radius:20px;text-align:left;
+  background:color-mix(in srgb,#f59e0b 14%,var(--tile));transition:transform .35s var(--spring)}
+.review-banner:active{transform:scale(.97)}
+.rb-ic{width:34px;height:34px;border-radius:50%;background:#f59e0b;color:#fff;font-weight:800;display:grid;place-items:center;flex:none}
+.rb-t{flex:1;font-size:14px;line-height:1.3}.rb-t span{color:var(--muted);font-size:13px}
+.rb-go{font-size:24px;color:var(--muted)}
+.hero .chip.review{background:#f59e0b;border-color:#f59e0b;color:#fff}
+.hero .chip.review.on{background:#fff;color:#b45309;border-color:#fff}
 .sync{color:var(--blue);font-weight:600;animation:breathe 1.2s ease-in-out infinite}
 @keyframes breathe{50%{opacity:.35}}
 .swipe{position:relative;overflow:hidden;transition:height .35s var(--ease),opacity .3s}
@@ -317,6 +326,7 @@ svg{display:block}
       <button class="act-pill act-round" data-open="Transfer" aria-label="Transfer"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M8 4v16M8 4L5 7M8 4l3 3M16 20V4M16 20l-3-3M16 20l3-3"/></svg></button>
       <button class="act-pill" data-open="Expense"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M7 17L17 7M9 7h8v8"/></svg>Expense</button>
     </div>
+    <button class="review-banner rise d3" id="reviewBanner" data-review="1"></button>
     <div class="sec-h rise d3"><h3>Recent Transactions</h3><button data-go="hist">View All</button></div>
     <div id="recentList" class="rise d3"></div>
   </div>
@@ -519,19 +529,20 @@ async function load(tab,force){
     applyMeta(b);applyData(b.data);S.rows.push(...pending);
     if(!S.account)S.account=mostUsed('account')||(S.accs[0]&&S.accs[0].name)||'';
     if(S.edit){const m=S.rows.find(r=>r.row===S.edit.ref.row);if(m)S.edit.ref=m;else S.edit=null;}
-    renderAll();saveCache();
+    renderAll();saveCache();S.lastLoad=Date.now();
   }catch(e){const msg=e.message||String(e);
     if(!hasGAS&&!window.__MOCK__&&/secret key|Not connected/i.test(msg))showSetup(msg);else toast(msg,true);}
   finally{S.loading=false;syncUI();$('loading').classList.add('hide');}
 }
 function mostUsed(f){const c={};S.rows.slice(-60).forEach(r=>{if(r[f])c[r[f]]=(c[r[f]]||0)+1;});return Object.keys(c).sort((a,b)=>c[b]-c[a])[0];}
 const sum=a=>a.reduce((s,r)=>s+r.amount,0);
+const needsReview=r=>!String(r.category||'').trim();          // auto-logged entries the server couldn't categorise
 function months(){return [...new Set(S.rows.map(r=>r.date.slice(0,7)).filter(Boolean))].sort().reverse();}
 function curMonth(){const ms=months(),t=todayISO().slice(0,7);return ms.includes(t)?t:(ms[0]||t);}
 function countUp(el,to,fmt){const t0=performance.now(),dur=900;
   const step=t=>{const p=Math.min(1,(t-t0)/dur),e=1-Math.pow(1-p,4);el.innerHTML=fmt(to*e);if(p<1)requestAnimationFrame(step);};requestAnimationFrame(step);}
 function rowHTML(r,swipe){const t=typeOf(r.category);
-  const sub=(r.pending?'<span class="sync">Syncing…</span> · ':'')+fmtDay(r.date)+' · '+esc(r.account)+(r.remarks?' · '+esc(r.remarks):'');
+  const sub=(r.pending?'<span class="sync">Syncing…</span> · ':'')+(needsReview(r)?'<span class="needs">Needs category</span> · ':'')+fmtDay(r.date)+' · '+esc(r.account)+(r.remarks?' · '+esc(r.remarks.replace(/\s*·\s*review\b/i,'')):'');
   const inner=`<div class="item ${r.pending?'pending':''}" data-id="${r._id}"><div class="ico">${svg(iconKey(r.category))}</div>
     <div class="mid"><div class="d">${esc(r.desc)}</div><div class="s">${sub}</div></div>
     <div class="a num ${t==='Income'?'inc':''}">${t==='Income'?'+':t==='Expense'?'−':''}${inr(r.amount)}</div></div>`;
@@ -554,6 +565,9 @@ function renderHome(animate){
   $('homeCard').innerHTML=`<div class="row"><span>•••• ${esc(mostUsed('account')||'Ledger')}</span><span>${String(mo).padStart(2,'0')} / ${String(y).slice(2)}</span></div>
     <div><div class="row" style="opacity:.7">Today</div><div class="big num">${money(todaySpent)}</div></div>
     <div class="row"><span>Avg ${inr0(spent/Math.max(1,days))}/day · ${exp.length} entries</span><span class="tag">INR</span></div>`;
+  const nr=S.rows.filter(needsReview).length;
+  $('reviewBanner').style.display=nr?'':'none';
+  $('reviewBanner').innerHTML=`<span class="rb-ic">!</span><span class="rb-t"><b>${nr} auto-logged ${nr>1?'entries need':'entry needs'} a category</b><br><span>Tap to review</span></span><span class="rb-go">›</span>`;
   $('recentList').innerHTML=sorted(S.rows).slice(0,6).map(r=>rowHTML(r,false)).join('')||'<div class="empty">No entries yet</div>';
 }
 
@@ -618,6 +632,7 @@ function save(){
   if(!S.account)return toast('Pick an account',true);
   let remarks=$('remarks').value.trim();
   if(S.split)remarks='total '+(Math.round(total*100)/100)+(remarks?', '+remarks:'');
+  if(S.category)remarks=remarks.replace(/\s*·\s*review\b/i,'');      // categorised → clear the review flag
   const tx={date:S.date,desc,category:S.category,amount,account:S.account,remarks};
   const form={kind:S.kind,split:S.split,splitN:S.splitN,amountText:$('amount').value,remarksText:$('remarks').value};
   const btn=$('saveBtn'),wasEdit=!!S.edit,tab=S.tab;
@@ -724,9 +739,11 @@ function bars(id,obj,total){
 /* ---------- HISTORY ---------- */
 function renderHist(){
   const opts=['All',...new Set(S.rows.map(r=>r.category).filter(Boolean)),...new Set(S.rows.map(r=>r.account).filter(Boolean))];
-  $('histFilter').innerHTML=opts.map(o=>`<button class="chip ${(o==='All'&&!S.filter)||o===S.filter?'on':''}" data-f="${esc(o)}">${o==='All'?'':svg(iconKey(o))}${esc(o)}</button>`).join('');
+  const nr=S.rows.filter(needsReview).length;
+  if(S.filter==='__review'&&!nr)S.filter='';
+  $('histFilter').innerHTML=(nr?`<button class="chip review ${S.filter==='__review'?'on':''}" data-f="__review">To review · ${nr}</button>`:'')+opts.map(o=>`<button class="chip ${(o==='All'&&!S.filter)||o===S.filter?'on':''}" data-f="${esc(o)}">${o==='All'?'':svg(iconKey(o))}${esc(o)}</button>`).join('');
   const q=$('search').value.trim().toLowerCase();
-  const list=sorted(S.rows.filter(r=>(!S.filter||r.category===S.filter||r.account===S.filter)&&
+  const list=sorted(S.rows.filter(r=>(!S.filter||(S.filter==='__review'?needsReview(r):(r.category===S.filter||r.account===S.filter)))&&
     (!q||[r.desc,r.category,r.account,r.remarks].join(' ').toLowerCase().includes(q))));
   if(!list.length){$('histList').innerHTML='<div class="empty">No matching entries</div>';return;}
   let html='',cur=null,buf=[],tot=0;
@@ -753,6 +770,7 @@ function renderHist(){
     s._swiped=Date.now();});
   document.addEventListener('click',e=>{
     const g=e.target.closest('[data-go]');if(g){go(g.dataset.go);return;}
+    if(e.target.closest('[data-review]')){S.filter='__review';$('search').value='';renderHist();go('hist');return;}
     const o=e.target.closest('[data-open]');if(o){openAdd(o.dataset.open);return;}
     const del=e.target.closest('[data-del]');if(del){const r=byId(+del.dataset.del);if(r)confirmDelete(r);return;}
     const it=e.target.closest('.item[data-id]');if(!it)return;const s=it.closest('.swipe');
@@ -884,7 +902,9 @@ function healViewport(){
   scroller().scrollTop=y;
 }
 document.addEventListener('focusout',e=>{if(e.target&&e.target.matches&&e.target.matches('input,textarea,select'))setTimeout(healViewport,160);});
-document.addEventListener('visibilitychange',()=>{if(!document.hidden)setTimeout(healViewport,200);});
+document.addEventListener('visibilitychange',()=>{if(document.hidden)return;setTimeout(healViewport,200);
+  // coming back to the app: pick up entries that were auto-logged from SMS meanwhile
+  if((hasGAS||getCfg())&&!S.loading&&!QN&&Date.now()-(S.lastLoad||0)>45000)load(S.tab);});
 bindAdd();
 if(!hasGAS&&!window.__MOCK__&&!getCfg()){showSetup();}
 else{fromCache();load();}
