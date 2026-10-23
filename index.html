@@ -32,13 +32,14 @@
   }
 }
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
-/* The page itself never scrolls – only #app does. iPhone Safari stretches Google's iframe to the
-   full content height otherwise, which breaks the floating tab bar and hidden sheets. */
-html,body{height:100%;overflow:hidden}
-/* --vgap: extra screen space iOS home-screen apps leave below the layout viewport (set by JS) */
-:root{--vgap:0px}
-#app{position:fixed;top:0;left:0;right:0;bottom:calc(0px - var(--vgap));overflow-y:auto;overflow-x:hidden;-webkit-overflow-scrolling:touch;overscroll-behavior:none;background:var(--panel)}
-html{background:var(--panel)}
+/* Home-screen app (GitHub Pages): normal page scrolling – a locked full-screen shell makes iOS
+   size the app to a too-small viewport and leaves a dead band at the bottom. */
+html{background:var(--panel);overscroll-behavior-y:none}
+#app{min-height:100vh;background:var(--panel)}
+/* Old in-Google version (.framed): only #app scrolls, because iPhone Safari stretches Google's
+   iframe to the full content height, which breaks the floating tab bar and hidden sheets. */
+html.framed,html.framed body{height:100%;overflow:hidden}
+html.framed #app{position:fixed;inset:0;min-height:0;overflow-y:auto;overflow-x:hidden;-webkit-overflow-scrolling:touch;overscroll-behavior:none}
 body{margin:0;background:var(--panel);color:var(--text);
   font:16px/1.35 -apple-system,BlinkMacSystemFont,"SF Pro Text","Inter","Segoe UI",Roboto,sans-serif;-webkit-font-smoothing:antialiased;letter-spacing:-.01em}
 button{font:inherit;color:inherit;cursor:pointer;border:0;background:none;padding:0}
@@ -233,7 +234,7 @@ svg{display:block}
 .search::placeholder{color:rgba(255,255,255,.6)}
 
 /* ---------- tab bar ---------- */
-.tabbar{position:fixed;left:50%;bottom:calc(max(10px, env(safe-area-inset-bottom) - 8px) - var(--vgap));transform:translateX(-50%);z-index:30;display:flex;gap:4px;padding:6px;border-radius:999px;
+.tabbar{position:fixed;left:50%;bottom:max(10px, calc(env(safe-area-inset-bottom) - 8px));transform:translateX(-50%);z-index:30;display:flex;gap:4px;padding:6px;border-radius:999px;
   background:var(--tabbar);-webkit-backdrop-filter:blur(24px) saturate(180%);backdrop-filter:blur(24px) saturate(180%);border:1px solid var(--tabbar-border);box-shadow:var(--shadow)}
 .tabbar button{width:56px;height:52px;border-radius:26px;display:grid;place-items:center;color:var(--text);transition:background .35s,color .35s,transform .4s var(--spring)}
 .tabbar button svg{width:23px;height:23px}
@@ -243,7 +244,7 @@ svg{display:block}
 /* ---------- action sheet ---------- */
 .backdrop{position:fixed;inset:0;z-index:40;background:rgba(3,8,30,.45);opacity:0;pointer-events:none;transition:opacity .35s}
 .backdrop.show{opacity:1;pointer-events:auto}
-.sheet{position:fixed;left:8px;right:8px;bottom:calc(max(8px, env(safe-area-inset-bottom) - 6px) - var(--vgap));z-index:41;max-width:560px;margin:0 auto;
+.sheet{position:fixed;left:8px;right:8px;bottom:max(8px, calc(env(safe-area-inset-bottom) - 6px));z-index:41;max-width:560px;margin:0 auto;
   transform:translateY(calc(100% + 40px));visibility:hidden;transition:transform .55s var(--spring),visibility 0s linear .55s}
 .sheet.show{transform:none;visibility:visible;transition:transform .55s var(--spring),visibility 0s}
 .sheet .panel2{background:var(--panel);border-radius:32px;padding:22px 18px 14px;box-shadow:var(--shadow)}
@@ -454,6 +455,9 @@ const raf2=fn=>requestAnimationFrame(()=>requestAnimationFrame(fn));
 
 /* ---------- server bridge ---------- */
 const hasGAS=typeof google!=='undefined'&&google.script&&google.script.run;
+const FRAMED=!!hasGAS;                                    // running inside Google's iframe
+if(FRAMED)document.documentElement.classList.add('framed');
+const scroller=()=>FRAMED?$('app'):(document.scrollingElement||document.documentElement);
 /* Connection to your Apps Script API (GitHub Pages version). Saved on this device only. */
 const CFG_K='et_cfg_v1';
 function getCfg(){try{return JSON.parse(localStorage.getItem(CFG_K)||'null')}catch(e){return null}}
@@ -805,7 +809,7 @@ function go(v){
   void document.body.offsetWidth;                          // restart entrance animations
   $('v-'+v).classList.add('active');
   $('leftBtn').innerHTML=v==='home'?'<span class="logo">₹</span>':svg('back');
-  $('app').scrollTop=0;$('topbar').classList.remove('scrolled');
+  scroller().scrollTop=0;$('topbar').classList.remove('scrolled');
   if(v==='home')renderHome(true);
   if(v==='stats')renderStats();
   if(v==='add'&&prev!=='add')renderAdd();
@@ -867,19 +871,20 @@ $('histFilter').onclick=e=>{const b=e.target.closest('[data-f]');if(!b)return;S.
 $('search').oninput=renderHist;
 $('tabSel').onchange=e=>{store.set('ql_tab',e.target.value);S.edit=null;load(e.target.value);};
 $('refreshBtn').onclick=()=>load(S.tab,true);
-$('app').addEventListener('scroll',()=>$('topbar').classList.toggle('scrolled',$('app').scrollTop>40),{passive:true});
+(FRAMED?$('app'):window).addEventListener('scroll',()=>$('topbar').classList.toggle('scrolled',scroller().scrollTop>40),{passive:true});
 let rz;window.addEventListener('resize',()=>{clearTimeout(rz);rz=setTimeout(()=>{if(S.view==='stats')renderStats();},200);});
-/* iOS home-screen apps with a see-through status bar can report a layout viewport that is shorter
-   than the screen, leaving the tab bar floating too high. Measure the gap and push things down. */
-function fixViewport(){
-  let gap=0;
-  try{
-    const portrait=window.matchMedia('(orientation: portrait)').matches;
-    if(isStandalone()&&portrait){const g=screen.height-window.innerHeight;if(g>0&&g<140)gap=g;}
-  }catch(e){}
-  document.documentElement.style.setProperty('--vgap',gap+'px');
+/* iOS home-screen bug: after the keyboard closes the app can stay ~60px too short (dead band at the
+   bottom, tab bar floating high). Flipping a full-height element off/on makes iOS re-measure. */
+let maxVH=window.innerHeight;
+window.addEventListener('resize',()=>{maxVH=Math.max(maxVH,window.innerHeight);});
+function healViewport(){
+  if(FRAMED||maxVH-window.innerHeight<=4)return;
+  const el=$('app'),y=scroller().scrollTop;
+  el.style.display='none';void el.offsetHeight;el.style.display='';
+  scroller().scrollTop=y;
 }
-fixViewport();window.addEventListener('resize',fixViewport);window.addEventListener('orientationchange',()=>setTimeout(fixViewport,300));
+document.addEventListener('focusout',e=>{if(e.target&&e.target.matches&&e.target.matches('input,textarea,select'))setTimeout(healViewport,160);});
+document.addEventListener('visibilitychange',()=>{if(!document.hidden)setTimeout(healViewport,200);});
 bindAdd();
 if(!hasGAS&&!window.__MOCK__&&!getCfg()){showSetup();}
 else{fromCache();load();}

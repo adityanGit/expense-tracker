@@ -1,5 +1,5 @@
 /* Expense Tracker – offline app shell. Bump VERSION when you upload new files. */
-const VERSION = 'et-v2';
+const VERSION = 'et-v3';
 const SHELL = ['./', './index.html', './manifest.webmanifest', './icon-180.png', './icon-192.png', './icon-512.png'];
 
 self.addEventListener('install', e => {
